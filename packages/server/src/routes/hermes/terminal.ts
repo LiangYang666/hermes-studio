@@ -79,7 +79,14 @@ export function resolveTerminalCwd(
   profileDir = getActiveProfileDir(),
 ): string {
   // HERMES_WEB_UI_TERMINAL_CWD env var takes priority over configured cwd
-  const envCwd = process.env.HERMES_WEB_UI_TERMINAL_CWD?.trim()
+  const rawCwd = process.env.HERMES_WEB_UI_TERMINAL_CWD?.trim()
+  let envCwd = ''
+  if (rawCwd) {
+    if (rawCwd === '~' || rawCwd === '$HOME') envCwd = homedir()
+    else if (rawCwd.startsWith('~/')) envCwd = join(homedir(), rawCwd.slice(2))
+    else if (rawCwd.startsWith('$HOME/')) envCwd = join(homedir(), rawCwd.slice(6))
+    else envCwd = rawCwd
+  }
   if (envCwd) {
     if (isAbsolute(envCwd)) {
       if (existsSync(envCwd)) return envCwd

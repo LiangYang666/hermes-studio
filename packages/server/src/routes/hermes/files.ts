@@ -5,13 +5,26 @@ import {
   isSensitivePath,
   MAX_EDIT_SIZE,
 } from '../../services/hermes/file-provider'
-import { resolve, normalize } from 'path'
+import { resolve, normalize, join } from 'path'
 import { requireSuperAdmin } from '../../middleware/user-auth'
 import { isPathWithin } from '../../services/hermes/hermes-path'
+import { homedir } from 'os'
 import { MultipartParseError, parseMultipartBoundary, parseMultipartFilename, splitMultipart } from '../../lib/multipart'
 
 function requestedProfile(ctx: any): string | undefined {
   return ctx.state?.profile?.name
+}
+
+/**
+ * Expand ~ and $HOME in a path. Supports ~, ~/…, $HOME, $HOME/… patterns.
+ * Leaves paths without home references unchanged.
+ */
+function expandHomeDir(p: string): string {
+  const home = homedir()
+  if (p === '~' || p === '$HOME') return home
+  if (p.startsWith('~/')) return join(home, p.slice(2))
+  if (p.startsWith('$HOME/')) return join(home, p.slice(6))
+  return p
 }
 
 /**
@@ -24,8 +37,9 @@ function requestedProfile(ctx: any): string | undefined {
  * paths cannot escape the home directory.
  */
 function resolveFileBrowserHome(): string | null {
-  const val = process.env.HERMES_WEB_UI_FILE_BROWSER_HOME?.trim()
-  return val || null
+  const raw = process.env.HERMES_WEB_UI_FILE_BROWSER_HOME?.trim()
+  if (!raw) return null
+  return expandHomeDir(raw)
 }
 
 function resolveRequestPath(ctx: any, relativePath: string): string {
