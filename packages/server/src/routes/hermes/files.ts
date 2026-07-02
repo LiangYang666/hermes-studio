@@ -5,14 +5,45 @@ import {
   isSensitivePath,
   MAX_EDIT_SIZE,
 } from '../../services/hermes/file-provider'
+import { resolve, normalize } from 'path'
 import { requireSuperAdmin } from '../../middleware/user-auth'
+import { isPathWithin } from '../../services/hermes/hermes-path'
 import { MultipartParseError, parseMultipartBoundary, parseMultipartFilename, splitMultipart } from '../../lib/multipart'
 
 function requestedProfile(ctx: any): string | undefined {
   return ctx.state?.profile?.name
 }
 
+/**
+ * When HERMES_WEB_UI_FILE_BROWSER_HOME is set, the file browser panels in the UI
+ * root at that directory instead of the Hermes profile directory — making it
+ * easy to browse and edit files in your active project at <browser_home>/… without
+ * navigating away from ~/.hermes every time.
+ *
+ * Path-traversal safety is enforced the same way as resolveHermesPath: relative
+ * paths cannot escape the home directory.
+ */
+function resolveFileBrowserHome(): string | null {
+  const val = process.env.HERMES_WEB_UI_FILE_BROWSER_HOME?.trim()
+  return val || null
+}
+
 function resolveRequestPath(ctx: any, relativePath: string): string {
+  const browserHome = resolveFileBrowserHome()
+  if (browserHome) {
+    if (!relativePath || relativePath === '.' || relativePath === '/') {
+      return resolve(browserHome)
+    }
+    const normalized = normalize(relativePath).replace(/\\/g, '/')
+    if (normalized.startsWith('..') || normalized.includes('/../') || normalized.startsWith('/')) {
+      throw Object.assign(new Error('Invalid file path'), { code: 'invalid_path' })
+    }
+    const resolved = resolve(browserHome, normalized)
+    if (!isPathWithin(resolved, resolve(browserHome))) {
+      throw Object.assign(new Error('Path traversal detected'), { code: 'invalid_path' })
+    }
+    return resolved
+  }
   return resolveHermesPath(relativePath, requestedProfile(ctx))
 }
 

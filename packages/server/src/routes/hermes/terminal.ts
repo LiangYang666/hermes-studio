@@ -78,6 +78,17 @@ export function resolveTerminalCwd(
   cfg: Pick<TerminalConfig, 'cwd'> = getTerminalConfig(),
   profileDir = getActiveProfileDir(),
 ): string {
+  // HERMES_WEB_UI_TERMINAL_CWD env var takes priority over configured cwd
+  const envCwd = process.env.HERMES_WEB_UI_TERMINAL_CWD?.trim()
+  if (envCwd) {
+    if (isAbsolute(envCwd)) {
+      if (existsSync(envCwd)) return envCwd
+      logger.warn({ cwd: envCwd }, 'HERMES_WEB_UI_TERMINAL_CWD does not exist; checking configured cwd')
+    } else {
+      logger.warn({ cwd: envCwd }, 'HERMES_WEB_UI_TERMINAL_CWD must be an absolute path; ignoring')
+    }
+  }
+
   const configured = cfg.cwd?.trim()
   const fallback = existsSync(profileDir) ? profileDir : homedir()
   if (!configured) return fallback
