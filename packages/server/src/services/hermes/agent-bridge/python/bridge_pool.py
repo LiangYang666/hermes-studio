@@ -129,6 +129,8 @@ class AgentSession:
     lock: threading.RLock = field(default_factory=threading.RLock)
     created_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
+    completion_events: list = field(default_factory=list)
+    completion_events_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class AgentPool:
@@ -146,6 +148,11 @@ class AgentPool:
         self._approval_handlers: dict[str, Callable[..., str]] = {}
         self._exec_ask_depth = 0
         self._exec_ask_previous: str | None = None
+        threading.Thread(
+            target=self._completion_drain_loop,
+            daemon=True,
+            name="hermes-bridge-completion-drain",
+        ).start()
 
     def get_or_create(
         self,
@@ -1175,6 +1182,7 @@ class AgentPool:
             db_count_after_prepersist: int | None = None
             result_for_tail_sync: dict[str, Any] | None = None
             tail_synced = False
+            _session_ctx_tokens = None
             try:
                 session_cwd_bound = _bind_session_workspace_cwd(session.session_id, workspace)
                 try:
@@ -1192,6 +1200,15 @@ class AgentPool:
                     approval_session_token = set_current_session_key(session.session_id)
                     register_gateway_notify(session.session_id, self._gateway_approval_notify(session.session_id))
                     registered_gateway_approval_session = session.session_id
+                except Exception:
+                    pass
+                try:
+                    from gateway.session_context import set_session_vars
+                    _session_ctx_tokens = set_session_vars(
+                        session_id=session.session_id,
+                        platform="",
+                        async_delivery=True,
+                    )
                 except Exception:
                     pass
                 self._prepersist_user_message(session, message, storage_message, conversation_history, profile, source)
@@ -1328,6 +1345,12 @@ class AgentPool:
                     session.last_used_at = time.time()
                 self._apply_pending_session_model_switch(session)
             finally:
+                if _session_ctx_tokens is not None:
+                    try:
+                        from gateway.session_context import clear_session_vars
+                        clear_session_vars(_session_ctx_tokens)
+                    except Exception:
+                        pass
                 with self._lock:
                     self._approval_handlers.pop(session.session_id, None)
                 try:
@@ -1869,3 +1892,51 @@ class AgentPool:
                 for s in sessions
             ]
         }
+
+    def _completion_drain_loop(self) -> None:
+        """Daemon thread: drain completion_queue, route events to session.completion_events by session_key."""
+        while True:
+            time.sleep(0.5)
+            try:
+                _ensure_agent_imports()
+                from tools.process_registry import process_registry
+
+                for evt, synth_text in process_registry.drain_notifications():
+                    agent_session_id = evt.get("session_key", "")
+                    if not agent_session_id:
+                        continue
+                    with self._lock:
+                        session = self._sessions.get(agent_session_id)
+                    if not session:
+                        continue
+                    with session.completion_events_lock:
+                        session.completion_events.append({
+                            "event": "background.process.completed",
+                            "text": synth_text,
+                            "type": evt.get("type", "completion"),
+                            "proc_session_id": evt.get("session_id"),
+                            "exit_code": evt.get("exit_code"),
+                        })
+            except Exception:
+                pass
+
+    def drain_completions_for_session(self, session_id: str) -> dict[str, Any]:
+        """Return and clear pending completion events for one session."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if not session:
+            return {"events": []}
+        with session.completion_events_lock:
+            events = list(session.completion_events)
+            session.completion_events.clear()
+        return {"events": events}
+
+    def has_pending_processes_for_session(self, session_id: str) -> dict[str, bool]:
+        """Check if there are active (running) processes for a session_key."""
+        try:
+            _ensure_agent_imports()
+            from tools.process_registry import process_registry
+
+            return {"has_pending": process_registry.has_active_for_session(session_id)}
+        except Exception:
+            return {"has_pending": False}

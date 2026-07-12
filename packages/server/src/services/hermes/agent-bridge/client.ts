@@ -518,6 +518,20 @@ export class AgentBridgeClient {
     }, options)
   }
 
+  drainCompletions(sessionId: string, options: AgentBridgeRequestOptions = {}): Promise<AgentBridgeResponse> {
+    return this.request(
+      { action: 'drain_completions', session_id: sessionId },
+      options,
+    )
+  }
+
+  hasPendingProcesses(sessionId: string, options: AgentBridgeRequestOptions = {}): Promise<AgentBridgeResponse> {
+    return this.request(
+      { action: 'has_pending_processes', session_id: sessionId },
+      options,
+    )
+  }
+
   async *streamOutput(
     runId: string,
     options: AgentBridgeRequestOptions & { intervalMs?: number } = {},

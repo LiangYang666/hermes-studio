@@ -90,6 +90,7 @@ export interface SessionState {
     startedAt: number
   }>
   bridgeCompressionResults?: Record<string, BridgeCompressionResult>
+  isPollingBackground?: boolean
 }
 
 export interface ResponseRunState {

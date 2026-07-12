@@ -222,6 +222,12 @@ class BridgeServer:
         if action == "list":
             return self.pool.list_sessions()
 
+        if action == "drain_completions":
+            return self.pool.drain_completions_for_session(str(req.get("session_id") or ""))
+
+        if action == "has_pending_processes":
+            return self.pool.has_pending_processes_for_session(str(req.get("session_id") or ""))
+
         if action == "shutdown":
             self._shutdown_all_mcp_servers()
             self._stop.set()

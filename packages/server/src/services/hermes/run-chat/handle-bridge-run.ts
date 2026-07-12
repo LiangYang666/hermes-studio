@@ -1285,6 +1285,11 @@ async function applyBridgeChunkAsync(
       }
       replaceState(sessionMap, sessionId, 'agent.event', payload)
       emit('agent.event', payload)
+    } else if (evType === 'background.process.completed') {
+      bridgeLogger.debug(
+        { evType, sessionId },
+        '[chat-run-socket] background process completion event (handled post-run)',
+      )
     }
   }
 
@@ -1448,6 +1453,16 @@ async function applyBridgeChunkAsync(
       instructions,
       finalResponse,
     })
+  }
+
+  // Start polling for background process completions (async, non-blocking)
+  if (!terminalError && !state.isPollingBackground) {
+    state.isPollingBackground = true
+    void pollAndInjectBackgroundCompletions(
+      socket, sessionId, state, sessionMap,
+      bridge, nsp, emit, dequeueNextQueuedRun,
+      instructions, modelContext, workspace, modelGroups,
+    )
   }
 
   if (state.queue.length > 0 && !state.activeRunMarker) {
@@ -1620,6 +1635,78 @@ function emitGoalStatus(
       message,
       terminal: false,
     })
+  }
+}
+
+async function pollAndInjectBackgroundCompletions(
+  socket: Socket,
+  sessionId: string,
+  state: SessionState,
+  sessionMap: Map<string, SessionState>,
+  bridge: AgentBridgeClient,
+  nsp: ReturnType<Server['of']>,
+  emit: (event: string, payload: any) => void,
+  dequeueNextQueuedRun: (socket: Socket, sessionId: string, fallbackProfile?: string) => void,
+  instructions: string,
+  modelContext: { model?: string | null; provider?: string | null },
+  workspace?: string | null,
+  modelGroups?: RunModelGroup[],
+): Promise<void> {
+  try {
+    while (true) {
+      await delay(500)
+
+      const currentState = sessionMap.get(sessionId)
+      if (!currentState) return
+
+      if (currentState.isWorking) continue
+
+      try {
+        const pendingResp = await bridge.hasPendingProcesses(sessionId)
+        const has_pending = !!(pendingResp as any).has_pending
+        const result = await bridge.drainCompletions(sessionId)
+        const events = (result as any).events as unknown[] | undefined
+
+        if (events && events.length > 0) {
+          for (const evt of events) {
+            const synthText = String((evt as any).text || '')
+            if (!synthText) continue
+
+            const next: QueuedRun = {
+              queue_id: `bg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+              input: synthText,
+              displayInput: null,
+              storageMessage: synthText,
+              model: modelContext.model || undefined,
+              provider: modelContext.provider || undefined,
+              model_groups: modelGroups,
+              instructions: undefined,
+              profile: state.profile || 'default',
+              source: state.source === 'global_agent' ? 'global_agent' : 'cli',
+              goalContinuation: false,
+            }
+            currentState.queue.push(next)
+          }
+
+          if (!currentState.isWorking && currentState.queue.length > 0) {
+            currentState.isWorking = true
+            currentState.profile = state.profile || 'default'
+            dequeueNextQueuedRun(socket, sessionId, state.profile)
+          }
+          return
+        }
+
+        if (!has_pending) {
+          return
+        }
+      } catch (err) {
+        bridgeLogger.warn({ err, sessionId }, '[poll-completions] background completion poll failed')
+        return
+      }
+    }
+  } finally {
+    const currentState = sessionMap.get(sessionId)
+    if (currentState) currentState.isPollingBackground = false
   }
 }
 
