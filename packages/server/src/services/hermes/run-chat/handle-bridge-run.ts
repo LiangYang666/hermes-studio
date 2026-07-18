@@ -6,8 +6,8 @@
 import type { Server, Socket } from 'socket.io'
 import { getSystemPrompt } from '../../../lib/llm-prompt'
 import { getSession, getSessionDetail, createSession, addMessage, updateSession, updateSessionStats } from '../../../db/hermes/session-store'
-import { updateUsage } from '../../../db/hermes/usage-store'
 import { logger, bridgeLogger } from '../../logger'
+import { normalizeTokenUsage, recordSessionUsage } from '../../usage-recorder'
 import { AgentBridgeClient, type AgentBridgeContextEstimate, type AgentBridgeMessage, type AgentBridgeOutput } from '../agent-bridge'
 import { contentBlocksToString, convertContentBlocksForAgent, extractTextForPreview, isContentBlockArray } from './content-blocks'
 import { buildCompressedHistory, buildDbHistory, buildSnapshotAwareHistory, forceCompressBridgeHistory, pushState, replaceState } from './compression'
@@ -45,6 +45,24 @@ const BRIDGE_GOAL_EVALUATE_TIMEOUT_MS = 120_000
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function parseBackgroundDelegation(toolName: string, output: string): { delegationId: string; status: string } | null {
+  if (toolName !== 'delegate_task') return null
+  try {
+    const payload = JSON.parse(output) as Record<string, unknown>
+    const delegationId = stringValue(payload.delegation_id)
+    if (!delegationId || payload.mode !== 'background') return null
+    return { delegationId, status: stringValue(payload.status) || 'dispatched' }
+  } catch {
+    return null
+  }
+}
+
+function backgroundPendingCount(state: SessionState): number {
+  return Object.values(state.backgroundDelegations || {})
+    .filter(delegation => delegation.status === 'running' || delegation.status === 'delivering')
+    .length
 }
 
 function normalizeTitleText(value: unknown): string {
@@ -274,6 +292,7 @@ async function ensureBridgeFixedContext(args: {
   state: SessionState
   bridge: AgentBridgeClient
   refresh?: boolean
+  backgroundDelegationEnabled?: boolean
 }): Promise<number | undefined> {
   const cached = bridgeContextMatches(args.state, args)
     ? getCachedBridgeContextOverhead(args.state)
@@ -286,7 +305,14 @@ async function ensureBridgeFixedContext(args: {
       [],
       args.instructions,
       args.profile,
-      { model: args.model ?? undefined, provider: args.provider ?? undefined, workspace: args.workspace ?? undefined },
+      {
+        model: args.model ?? undefined,
+        provider: args.provider ?? undefined,
+        workspace: args.workspace ?? undefined,
+        ...(args.backgroundDelegationEnabled !== undefined
+          ? { background_delegation_enabled: args.backgroundDelegationEnabled }
+          : {}),
+      },
     )
     cacheBridgeContext(args.state, estimate, args.workspace)
     const fixedContextTokens = getCachedBridgeContextOverhead(args.state)
@@ -316,7 +342,7 @@ async function ensureBridgeFixedContext(args: {
 export async function handleBridgeRun(
   nsp: ReturnType<Server['of']>,
   socket: Socket,
-  data: { input: string | ContentBlock[]; display_input?: string | ContentBlock[] | null; display_role?: 'user' | 'command'; storage_message?: string; session_id?: string; model?: string; provider?: string; model_groups?: RunModelGroup[]; instructions?: string; workspace?: string | null; source?: string; session_source?: 'global_agent' | 'workflow'; queue_id?: string; peerExcludeSocketId?: string; reasoning_effort?: string; one_shot_model?: boolean; onEvent?: (event: string, payload: any) => void },
+  data: { input: string | ContentBlock[]; display_input?: string | ContentBlock[] | null; display_role?: 'user' | 'command'; storage_message?: string; session_id?: string; model?: string; provider?: string; model_groups?: RunModelGroup[]; instructions?: string; workspace?: string | null; source?: string; session_source?: 'global_agent' | 'workflow'; queue_id?: string; peerExcludeSocketId?: string; reasoning_effort?: string; background_delegation_enabled?: boolean; one_shot_model?: boolean; background_delegation_id?: string; background_claim_id?: string; autonomous?: boolean; onEvent?: (event: string, payload: any) => void },
   profile: string,
   sessionMap: Map<string, SessionState>,
   bridge: AgentBridgeClient,
@@ -330,6 +356,10 @@ export async function handleBridgeRun(
     : data.session_source === 'workflow' || data.source === 'workflow'
       ? 'workflow'
       : 'cli'
+  // Web UI Hermes agents currently opt out at creation time. Workflow callers
+  // also pass false explicitly; a future single-chat setting can opt in with true
+  // without changing the permanently-disabled workflow and group-chat callers.
+  const backgroundDelegationEnabled = data.background_delegation_enabled === true
   if (!session_id) {
     socket.emit('run.failed', { event: 'run.failed', error: 'session_id is required for cli source' })
     return
@@ -340,6 +370,7 @@ export async function handleBridgeRun(
     : getSystemPrompt(undefined, { source: data.session_source || data.source })
   const sessionRow = getSession(session_id)
   const workspace = await ensureHermesRunWorkspace(profile, sessionRow?.workspace || data.workspace)
+  const shouldEmitWorkspaceUpdate = Boolean(workspace && !sessionRow?.workspace)
   if (sessionRow && !sessionRow.workspace) updateSession(session_id, { workspace })
   const sessionModel = sessionRow?.model || ''
   const sessionProvider = sessionRow?.provider || ''
@@ -373,6 +404,13 @@ export async function handleBridgeRun(
       ? await loadSessionStateFromDbFn(session_id, sessionMap)
       : { messages: [], isWorking: false, events: [], queue: [] }
     sessionMap.set(session_id, state)
+  }
+  if (sessionRow) {
+    try {
+      updateSession(session_id, { ended_at: null, end_reason: null, last_active: now })
+    } catch (err) {
+      bridgeLogger.warn(err, '[chat-run-socket] failed to reopen session %s for bridge run', session_id)
+    }
   }
 
   state.isWorking = true
@@ -462,6 +500,12 @@ export async function handleBridgeRun(
       socket.emit(event, tagged)
     }
   }
+  if (shouldEmitWorkspaceUpdate) {
+    emit('session.workspace.updated', {
+      event: 'session.workspace.updated',
+      workspace,
+    })
+  }
 
   const history = await buildCompressedHistory(
     session_id, profile,
@@ -481,6 +525,7 @@ export async function handleBridgeRun(
         state,
         bridge,
         refresh: true,
+        backgroundDelegationEnabled,
       })
       const contextTokens = fixedContextTokens == null
         ? localMessageTokens
@@ -500,6 +545,7 @@ export async function handleBridgeRun(
     { excludeLastUser: !isGoalKickoff },
   )
   const bridgeHistory = history
+  let backgroundNotificationAccepted = false
 
   try {
     const bridgeInput = isContentBlockArray(input)
@@ -530,11 +576,23 @@ export async function handleBridgeRun(
         ...(resolvedModel ? { model: resolvedModel } : {}),
         ...(resolvedProvider ? { provider: resolvedProvider } : {}),
         ...(workspace ? { workspace } : {}),
+        // Creation fallback when this chat is the first operation for the
+        // cached AgentSession (for example if context estimation was skipped).
+        background_delegation_enabled: backgroundDelegationEnabled,
         // Local patch (reasoning-effort): per-session reasoning effort override.
         ...(data.reasoning_effort ? { reasoning_effort: data.reasoning_effort } : {}),
       },
     )
     state.runId = started.run_id
+    if (data.background_delegation_id && data.background_claim_id) {
+      await bridge.completeBackgroundNotification(
+        session_id,
+        profile,
+        data.background_delegation_id,
+        data.background_claim_id,
+      )
+      backgroundNotificationAccepted = true
+    }
     try {
       startWorkspaceRunCheckpoint({
         sessionId: session_id,
@@ -553,11 +611,15 @@ export async function handleBridgeRun(
       event: 'run.started',
       run_id: started.run_id,
       queue_length: state.queue.length || 0,
+      autonomous: data.autonomous === true,
+      delegation_id: data.background_delegation_id,
     })
     emit('run.started', {
       event: 'run.started',
       run_id: started.run_id,
       queue_length: state.queue.length || 0,
+      autonomous: data.autonomous === true,
+      delegation_id: data.background_delegation_id,
     })
 
     let lastChunk: AgentBridgeOutput | null = null
@@ -582,6 +644,7 @@ export async function handleBridgeRun(
         currentInputTokens,
         shouldPersistUserMessage && displayRole === 'user',
         data.model_groups,
+        { autonomous: data.autonomous === true, delegationId: data.background_delegation_id },
       )
       if (chunk.done) {
         sawTerminalChunk = true
@@ -626,9 +689,20 @@ export async function handleBridgeRun(
         currentInputTokens,
         shouldPersistUserMessage && displayRole === 'user',
         data.model_groups,
+        { autonomous: data.autonomous === true, delegationId: data.background_delegation_id },
       )
     }
   } catch (err: any) {
+    if (data.background_delegation_id && data.background_claim_id && !backgroundNotificationAccepted) {
+      void bridge.releaseBackgroundNotification(
+        session_id,
+        profile,
+        data.background_delegation_id,
+        data.background_claim_id,
+      ).catch(releaseErr => {
+        bridgeLogger.warn(releaseErr, '[chat-run-socket] failed to release background notification claim %s', data.background_delegation_id)
+      })
+    }
     if (state.activeRunMarker !== runMarker) return
     if (!state.isWorking) return
     const queueLen = state.queue?.length ?? 0
@@ -655,11 +729,6 @@ export async function handleBridgeRun(
       emit,
       bridge,
     })
-    updateUsage(session_id, {
-      inputTokens: errUsage.inputTokens,
-      outputTokens: errUsage.outputTokens,
-      profile,
-    })
     emit('run.failed', {
       event: 'run.failed',
       error: message,
@@ -667,8 +736,19 @@ export async function handleBridgeRun(
       outputTokens: errUsage.outputTokens,
       contextTokens: errContextTokens,
       queue_remaining: queueLen,
+      background_pending: backgroundPendingCount(state),
+      autonomous: data.autonomous === true,
+      delegation_id: data.background_delegation_id,
     })
-    if (queueLen > 0) dequeueNextQueuedRun(socket, session_id)
+    if (queueLen > 0) {
+      dequeueNextQueuedRun(socket, session_id)
+    } else {
+      try {
+        updateSession(session_id, { ended_at: Math.floor(Date.now() / 1000), end_reason: 'error' })
+      } catch (endErr) {
+        bridgeLogger.warn(endErr, '[chat-run-socket] failed to write ended_at for session %s', session_id)
+      }
+    }
   }
 }
 
@@ -732,6 +812,17 @@ export async function resumeBridgeRun(
   try {
     const snapshot = await bridge.getResult(runId)
     const deltas = Array.isArray(snapshot.deltas) ? snapshot.deltas.map(String) : []
+    const snapshotEvents = Array.isArray(snapshot.events) ? snapshot.events : []
+    for (const event of snapshotEvents) {
+      if (!event || typeof event !== 'object' || Array.isArray(event)) continue
+      const bridgeEvent = event as Record<string, unknown>
+      if (bridgeEvent.event === 'model.usage') {
+        recordBridgeModelUsage(sessionId, runId, bridgeEvent, profile, {
+          model: args.model,
+          provider: args.provider,
+        })
+      }
+    }
     const output = typeof snapshot.output === 'string' ? snapshot.output : deltas.join('')
     const persisted = state.bridgeOutput || ''
     const missingOutput = output && output.startsWith(persisted) ? output.slice(persisted.length) : ''
@@ -752,7 +843,7 @@ export async function resumeBridgeRun(
           output,
           done: false,
           events: [],
-          event_cursor: Array.isArray(snapshot.events) ? snapshot.events.length : 0,
+          event_cursor: snapshotEvents.length,
           error: null,
         },
         emit,
@@ -766,7 +857,7 @@ export async function resumeBridgeRun(
       )
     }
     cursor = deltas.length
-    eventCursor = Array.isArray(snapshot.events) ? snapshot.events.length : 0
+    eventCursor = snapshotEvents.length
   } catch (err) {
     bridgeLogger.warn({
       err: err instanceof Error ? { message: err.message, name: err.name } : err,
@@ -815,6 +906,13 @@ export async function resumeBridgeRun(
       error: err instanceof Error ? err.message : String(err),
       resumed: true,
     })
+    if ((state.queue?.length ?? 0) === 0) {
+      try {
+        updateSession(sessionId, { ended_at: Math.floor(Date.now() / 1000), end_reason: 'error' })
+      } catch (endErr) {
+        bridgeLogger.warn(endErr, '[chat-run-socket] failed to write ended_at for session %s', sessionId)
+      }
+    }
   }
 }
 
@@ -911,6 +1009,50 @@ async function estimateSnapshotAwareMessageTokens(args: {
   }
 }
 
+function recordBridgeModelUsage(
+  sessionId: string,
+  bridgeRunId: string,
+  event: Record<string, unknown>,
+  profile: string,
+  modelContext: { model?: string | null; provider?: string | null },
+): void {
+  const usage = normalizeTokenUsage(event.usage)
+  if (usage.isEstimated) {
+    bridgeLogger.warn({
+      sessionId,
+      bridgeRunId,
+      apiRequestId: event.api_request_id,
+    }, '[chat-run-socket] ignoring incomplete Hermes model usage event')
+    return
+  }
+
+  const apiRequestId = stringValue(event.api_request_id)
+  const turnId = stringValue(event.turn_id)
+  const apiCallCount = Number(event.api_call_count)
+  const fallbackId = turnId && Number.isFinite(apiCallCount)
+    ? `${turnId}:${Math.max(0, Math.floor(apiCallCount))}`
+    : ''
+  const requestKey = apiRequestId || fallbackId
+  if (!requestKey) {
+    bridgeLogger.warn({ sessionId, bridgeRunId }, '[chat-run-socket] ignoring Hermes model usage event without request identity')
+    return
+  }
+
+  recordSessionUsage({
+    sessionId,
+    runId: `${bridgeRunId}:api:${requestKey}`,
+    source: 'hermes',
+    agent: 'hermes',
+    usageScope: 'model_call',
+    apiCalls: 1,
+    usage: event.usage,
+    model: stringValue(event.model) || modelContext.model,
+    provider: stringValue(event.provider) || modelContext.provider,
+    profile,
+    isEstimated: false,
+  })
+}
+
 async function applyBridgeChunkAsync(
   nsp: ReturnType<Server['of']>,
   socket: Socket,
@@ -929,6 +1071,7 @@ async function applyBridgeChunkAsync(
   currentInputTokens = 0,
   currentInputIncludedInDb = true,
   modelGroups?: RunModelGroup[],
+  runMetadata?: { autonomous?: boolean; delegationId?: string },
 ): Promise<void> {
   if (state.activeRunMarker !== runMarker) {
     bridgeLogger.info({
@@ -955,7 +1098,9 @@ async function applyBridgeChunkAsync(
       processBridgeTextDelta(state, sessionId, runMarker, chunk.run_id, String((ev as any).delta || ''), emit)
       continue
     }
-    if (evType === 'session.title.updated') {
+    if (evType === 'model.usage') {
+      recordBridgeModelUsage(sessionId, chunk.run_id, ev, profile, modelContext)
+    } else if (evType === 'session.title.updated') {
       syncBridgeGeneratedTitle(sessionId, (ev as any).title, emit)
     } else if (evType === 'bridge.context.ready') {
       cacheBridgeContext(state, ev, workspace)
@@ -1000,6 +1145,19 @@ async function applyBridgeChunkAsync(
     } else if (evType === 'tool.completed') {
       const toolName = (ev.tool_name as string) || ''
       const completed = recordBridgeToolCompleted(state, sessionId, runMarker, toolName, ev)
+      const backgroundDelegation = parseBackgroundDelegation(toolName, completed.output)
+      if (backgroundDelegation) {
+        state.backgroundDelegations = state.backgroundDelegations || {}
+        const existing = state.backgroundDelegations[backgroundDelegation.delegationId]
+        if (!existing || existing.status === 'running') {
+          state.backgroundDelegations[backgroundDelegation.delegationId] = {
+            delegationId: backgroundDelegation.delegationId,
+            status: 'running',
+            profile,
+            updatedAt: Date.now(),
+          }
+        }
+      }
       const payload = {
         event: 'tool.completed',
         run_id: chunk.run_id,
@@ -1012,6 +1170,17 @@ async function applyBridgeChunkAsync(
       }
       pushState(sessionMap, sessionId, 'tool.completed', payload)
       emit('tool.completed', payload)
+      if (backgroundDelegation) {
+        const delegationPayload = {
+          event: 'delegation.updated',
+          run_id: chunk.run_id,
+          delegation_id: backgroundDelegation.delegationId,
+          status: 'running',
+          background_pending: backgroundPendingCount(state),
+        }
+        pushState(sessionMap, sessionId, 'delegation.updated', delegationPayload)
+        emit('delegation.updated', delegationPayload)
+      }
     } else if (evType?.startsWith('subagent.')) {
       const payload = {
         event: evType,
@@ -1027,6 +1196,7 @@ async function applyBridgeChunkAsync(
         tool_count: ev.tool_count,
         tool: ev.tool_name,
         name: ev.tool_name,
+        arguments: ev.args,
         preview: ev.text || ev.summary || ev.tool_preview || '',
         text: ev.text || '',
         status: ev.status,
@@ -1041,6 +1211,7 @@ async function applyBridgeChunkAsync(
         files_read: ev.files_read,
         files_written: ev.files_written,
         output_tail: ev.output_tail,
+        background_seq: ev.background_seq,
       }
       pushState(sessionMap, sessionId, evType, payload)
       emit(evType, payload)
@@ -1359,13 +1530,15 @@ async function applyBridgeChunkAsync(
     emit,
     bridge,
   })
-  updateUsage(sessionId, {
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    profile: state.profile,
-  })
   const hadQueuedRunBeforeGoalEvaluation = state.queue.length > 0
   const eventName = terminalError ? 'run.failed' : 'run.completed'
+  if (runMetadata?.delegationId && state.backgroundDelegations?.[runMetadata.delegationId]) {
+    state.backgroundDelegations[runMetadata.delegationId] = {
+      ...state.backgroundDelegations[runMetadata.delegationId],
+      status: terminalError ? 'failed' : 'completed',
+      updatedAt: Date.now(),
+    }
+  }
   let workspaceRunChange: ReturnType<typeof completeWorkspaceRunCheckpoint> = null
   try {
     const change = completeWorkspaceRunCheckpoint({
@@ -1404,6 +1577,9 @@ async function applyBridgeChunkAsync(
     outputTokens: usage.outputTokens,
     contextTokens,
     queue_remaining: state.queue.length,
+    background_pending: backgroundPendingCount(state),
+    autonomous: runMetadata?.autonomous === true,
+    delegation_id: runMetadata?.delegationId,
     workspace_run_change: workspaceRunChange,
   }
   emit(eventName, payload)
@@ -1432,6 +1608,11 @@ async function applyBridgeChunkAsync(
   } else if (!state.activeRunMarker) {
     state.isWorking = false
     state.profile = undefined
+    try {
+      updateSession(sessionId, { ended_at: Math.floor(Date.now() / 1000), end_reason: terminalError ? 'error' : 'complete' })
+    } catch (endErr) {
+      bridgeLogger.warn(endErr, '[chat-run-socket] failed to write ended_at for session %s', sessionId)
+    }
   }
 }
 

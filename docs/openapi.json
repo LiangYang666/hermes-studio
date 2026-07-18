@@ -3,7 +3,7 @@
   "info": {
     "title": "Hermes Studio API",
     "description": "Hermes Studio API — chat sessions, scheduled jobs, platform channels, model management, skills, memory, logs, file browser, group chat, and terminal.",
-    "version": "0.6.25"
+    "version": "0.6.30"
   },
   "servers": [
     {
@@ -45,12 +45,12 @@
       "description": "Hermes file browser"
     },
     {
-      "name": "Gemini Auth",
-      "description": "Google Gemini OAuth"
-    },
-    {
       "name": "Group Chat",
       "description": "Group chat management"
+    },
+    {
+      "name": "Journey",
+      "description": "Hermes Agent learning journey graph"
     },
     {
       "name": "Kanban",
@@ -467,11 +467,20 @@
                   "account": {
                     "type": "string"
                   },
+                  "device_code": {
+                    "type": "string"
+                  },
                   "id": {
                     "type": "string"
                   },
                   "password": {
                     "type": "string"
+                  },
+                  "relayMode": {
+                    "type": "string"
+                  },
+                  "remote": {
+                    "type": "boolean"
                   },
                   "token": {
                     "type": "string"
@@ -2912,94 +2921,6 @@
         }
       }
     },
-    "/api/hermes/auth/gemini/poll/{sessionId}": {
-      "get": {
-        "tags": [
-          "Gemini Auth"
-        ],
-        "summary": "Get :sessionId",
-        "description": "GET /api/hermes/auth/gemini/poll/:sessionId",
-        "operationId": "poll",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        },
-        "parameters": [
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/hermes/auth/gemini/start": {
-      "post": {
-        "tags": [
-          "Gemini Auth"
-        ],
-        "summary": "Create start",
-        "description": "POST /api/hermes/auth/gemini/start",
-        "operationId": "start",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/hermes/auth/gemini/status": {
-      "get": {
-        "tags": [
-          "Gemini Auth"
-        ],
-        "summary": "Get status",
-        "description": "GET /api/hermes/auth/gemini/status",
-        "operationId": "status",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        }
-      }
-    },
     "/api/hermes/auth/nous/poll/{sessionId}": {
       "get": {
         "tags": [
@@ -3409,6 +3330,42 @@
             }
           }
         }
+      }
+    },
+    "/api/hermes/config/credentials/{platform}": {
+      "delete": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Clear credentials",
+        "description": "DELETE /api/hermes/config/credentials/:platform",
+        "operationId": "clearCredentials",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credentials cleared; the response may include a gateway restart warning."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/hermes/config/moa": {
@@ -4005,6 +3962,45 @@
         }
       }
     },
+    "/api/hermes/files/preview": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Get preview",
+        "description": "GET /api/hermes/files/preview",
+        "operationId": "previewProfileFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "string"
+              ]
+            }
+          }
+        ]
+      }
+    },
     "/api/hermes/files/read": {
       "get": {
         "tags": [
@@ -4249,6 +4245,9 @@
                     "type": "string"
                   },
                   "name": {
+                    "type": "string"
+                  },
+                  "workspace": {
                     "type": "string"
                   }
                 },
@@ -4780,6 +4779,467 @@
         }
       }
     },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace": {
+      "put": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Update workspace",
+        "description": "PUT /api/hermes/group-chat/rooms/:roomId/workspace",
+        "operationId": "updateWorkspace",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - Workspace folder is not allowed"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "workspace": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "workspace"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/content": {
+      "get": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Get content",
+        "description": "GET /api/hermes/group-chat/rooms/:roomId/workspace-file/content",
+        "operationId": "readWorkspaceFileContent",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "text",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/copy": {
+      "post": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Create copy",
+        "description": "POST /api/hermes/group-chat/rooms/:roomId/workspace-file/copy",
+        "operationId": "copyWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "destPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "srcPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/delete": {
+      "delete": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Delete delete",
+        "description": "DELETE /api/hermes/group-chat/rooms/:roomId/workspace-file/delete",
+        "operationId": "deleteWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/mkdir": {
+      "post": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Create mkdir",
+        "description": "POST /api/hermes/group-chat/rooms/:roomId/workspace-file/mkdir",
+        "operationId": "mkdirWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/read": {
+      "get": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Get read",
+        "description": "GET /api/hermes/group-chat/rooms/:roomId/workspace-file/read",
+        "operationId": "readWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/rename": {
+      "post": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Create rename",
+        "description": "POST /api/hermes/group-chat/rooms/:roomId/workspace-file/rename",
+        "operationId": "renameWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "newPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "oldPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-file/write": {
+      "put": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Update write",
+        "description": "PUT /api/hermes/group-chat/rooms/:roomId/workspace-file/write",
+        "operationId": "writeWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "path": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/group-chat/rooms/{roomId}/workspace-files/list": {
+      "get": {
+        "tags": [
+          "Group Chat"
+        ],
+        "summary": "Get list",
+        "description": "GET /api/hermes/group-chat/rooms/:roomId/workspace-files/list",
+        "operationId": "listWorkspaceFiles",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/hermes/jobs": {
       "get": {
         "tags": [
@@ -4836,6 +5296,32 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/hermes/jobs/delivery-targets": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Get delivery-targets",
+        "description": "GET /api/hermes/jobs/delivery-targets",
+        "operationId": "deliveryTargets",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -5047,6 +5533,32 @@
             }
           }
         ]
+      }
+    },
+    "/api/hermes/journey": {
+      "get": {
+        "tags": [
+          "Journey"
+        ],
+        "summary": "Get journey",
+        "description": "GET /api/hermes/journey",
+        "operationId": "graph",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
       }
     },
     "/api/hermes/kanban": {
@@ -8827,7 +9339,77 @@
           "404": {
             "description": "Not found"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/sessions/hermes/groups": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Get groups",
+        "description": "GET /api/hermes/sessions/hermes/groups",
+        "operationId": "listHermesSessionGroups",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/hermes/sessions/hermes/{id}": {
@@ -9232,6 +9814,22 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "api_mode": {
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages"
+                    ]
+                  },
+                  "apiMode": {
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages"
+                    ]
+                  },
                   "model": {
                     "type": "string"
                   },
@@ -9425,6 +10023,207 @@
         }
       }
     },
+    "/api/hermes/sessions/{id}/workspace-file/content": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Get content",
+        "description": "GET /api/hermes/sessions/:id/workspace-file/content",
+        "operationId": "readWorkspaceFileContent",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "text",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/sessions/{id}/workspace-file/copy": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Create copy",
+        "description": "POST /api/hermes/sessions/:id/workspace-file/copy",
+        "operationId": "copyWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "destPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "srcPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/sessions/{id}/workspace-file/delete": {
+      "delete": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Delete delete",
+        "description": "DELETE /api/hermes/sessions/:id/workspace-file/delete",
+        "operationId": "deleteWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hermes/sessions/{id}/workspace-file/mkdir": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Create mkdir",
+        "description": "POST /api/hermes/sessions/:id/workspace-file/mkdir",
+        "operationId": "mkdirWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/hermes/sessions/{id}/workspace-file/read": {
       "get": {
         "tags": [
@@ -9467,6 +10266,62 @@
             }
           }
         ]
+      }
+    },
+    "/api/hermes/sessions/{id}/workspace-file/rename": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Create rename",
+        "description": "POST /api/hermes/sessions/:id/workspace-file/rename",
+        "operationId": "renameWorkspaceFile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "newPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "oldPath": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/hermes/sessions/{id}/workspace-file/write": {
@@ -9523,6 +10378,50 @@
             }
           }
         }
+      }
+    },
+    "/api/hermes/sessions/{id}/workspace-files/list": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Get list",
+        "description": "GET /api/hermes/sessions/:id/workspace-files/list",
+        "operationId": "listWorkspaceFiles",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/hermes/sessions/{id}/workspace-run-changes": {
@@ -11595,6 +12494,965 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/hermes/config/providers/{poolKey}/editor": {
+      "get": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Get provider editor metadata",
+        "description": "Return redacted, revisioned provider editor metadata for the request-scoped profile. Admin or super_admin only.",
+        "operationId": "getProviderEditor",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "poolKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable provider id, e.g. deepseek or custom:my-proxy"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider editor detail. Never includes plaintext credentials.",
+            "headers": {
+              "ETag": {
+                "description": "Current provider editor revision",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "provider": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "builtin": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "builtin_env",
+                            "custom_providers",
+                            "providers"
+                          ]
+                        },
+                        "source_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "api_mode": {
+                          "type": "string",
+                          "enum": [
+                            "chat_completions",
+                            "codex_responses",
+                            "anthropic_messages",
+                            "bedrock_converse",
+                            "codex_app_server"
+                          ]
+                        },
+                        "preferred_model": {
+                          "type": "string"
+                        },
+                        "credential_configured": {
+                          "type": "boolean",
+                          "description": "Whether a credential is configured. The secret itself is never returned."
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "editable_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "context_lengths": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "discover_models": {
+                          "type": "boolean"
+                        },
+                        "rate_limit_delay": {
+                          "type": "number"
+                        },
+                        "request_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "stale_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "extra_body": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "connection_test_supported": {
+                          "type": "boolean"
+                        },
+                        "connection_test_reason": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "editable",
+                        "editable_fields",
+                        "credential_configured",
+                        "revision"
+                      ]
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Provider is not editable"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update provider editor fields",
+        "description": "Revision-checked provider edit. Stable internal id never changes. Blank api_key keeps the existing secret; clear requires credential_action=clear.",
+        "operationId": "patchProviderEditor",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "poolKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable provider id, e.g. deepseek or custom:my-proxy"
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Expected provider editor revision (ETag). Required for successful writes; missing/stale values return 412."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "api_mode": {
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages",
+                      "bedrock_converse",
+                      "codex_app_server"
+                    ]
+                  },
+                  "preferred_model": {
+                    "type": "string"
+                  },
+                  "credential_action": {
+                    "type": "string",
+                    "enum": [
+                      "keep",
+                      "replace",
+                      "clear"
+                    ]
+                  },
+                  "api_key": {
+                    "type": "string",
+                    "description": "Required only when credential_action is replace. Blank/omitted never means clear."
+                  },
+                  "discover_models": {
+                    "type": "boolean"
+                  },
+                  "rate_limit_delay": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "request_timeout_seconds": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "stale_timeout_seconds": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "extra_body": {
+                    "nullable": true,
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider editor detail. Never includes plaintext credentials.",
+            "headers": {
+              "ETag": {
+                "description": "Current provider editor revision",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "provider": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "builtin": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "builtin_env",
+                            "custom_providers",
+                            "providers"
+                          ]
+                        },
+                        "source_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "api_mode": {
+                          "type": "string",
+                          "enum": [
+                            "chat_completions",
+                            "codex_responses",
+                            "anthropic_messages",
+                            "bedrock_converse",
+                            "codex_app_server"
+                          ]
+                        },
+                        "preferred_model": {
+                          "type": "string"
+                        },
+                        "credential_configured": {
+                          "type": "boolean",
+                          "description": "Whether a credential is configured. The secret itself is never returned."
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "editable_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "context_lengths": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "discover_models": {
+                          "type": "boolean"
+                        },
+                        "rate_limit_delay": {
+                          "type": "number"
+                        },
+                        "request_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "stale_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "extra_body": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "connection_test_supported": {
+                          "type": "boolean"
+                        },
+                        "connection_test_reason": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "editable",
+                        "editable_fields",
+                        "credential_configured",
+                        "revision"
+                      ]
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Provider is not editable"
+          },
+          "412": {
+            "description": "Stale revision conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "REVISION_CONFLICT"
+                    },
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "builtin": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "builtin_env",
+                            "custom_providers",
+                            "providers"
+                          ]
+                        },
+                        "source_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "api_mode": {
+                          "type": "string",
+                          "enum": [
+                            "chat_completions",
+                            "codex_responses",
+                            "anthropic_messages",
+                            "bedrock_converse",
+                            "codex_app_server"
+                          ]
+                        },
+                        "preferred_model": {
+                          "type": "string"
+                        },
+                        "credential_configured": {
+                          "type": "boolean",
+                          "description": "Whether a credential is configured. The secret itself is never returned."
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "editable_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "context_lengths": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "discover_models": {
+                          "type": "boolean"
+                        },
+                        "rate_limit_delay": {
+                          "type": "number"
+                        },
+                        "request_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "stale_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "extra_body": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "connection_test_supported": {
+                          "type": "boolean"
+                        },
+                        "connection_test_reason": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "editable",
+                        "editable_fields",
+                        "credential_configured",
+                        "revision"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hermes/config/providers/{poolKey}/editor/test": {
+      "post": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Test provider editor draft",
+        "description": "Test unsaved provider draft connectivity/catalog discovery without persisting credentials. Returns success=false for catalog failures instead of a hard 5xx when the protocol is supported.",
+        "operationId": "testProviderEditor",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "poolKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable provider id, e.g. deepseek or custom:my-proxy"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "api_mode": {
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages",
+                      "bedrock_converse",
+                      "codex_app_server"
+                    ]
+                  },
+                  "preferred_model": {
+                    "type": "string"
+                  },
+                  "credential_action": {
+                    "type": "string",
+                    "enum": [
+                      "keep",
+                      "replace",
+                      "clear"
+                    ]
+                  },
+                  "api_key": {
+                    "type": "string",
+                    "description": "Required only when credential_action is replace. Blank/omitted never means clear."
+                  },
+                  "discover_models": {
+                    "type": "boolean"
+                  },
+                  "rate_limit_delay": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "request_timeout_seconds": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "stale_timeout_seconds": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "extra_body": {
+                    "nullable": true,
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Draft test result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "model_count": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Provider is not editable"
+          }
+        }
+      }
+    },
+    "/api/hermes/config/providers/{poolKey}/editor/contexts": {
+      "patch": {
+        "tags": [
+          "Providers"
+        ],
+        "summary": "Update provider model context lengths",
+        "description": "Profile-scoped context length overrides for a provider. Null values clear an override. Uses the same revision/ETag contract as the editor patch endpoint.",
+        "operationId": "patchProviderEditorContexts",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "poolKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable provider id, e.g. deepseek or custom:my-proxy"
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Expected provider editor revision (ETag). Required for successful writes; missing/stale values return 412."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string"
+                  },
+                  "context_lengths": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true,
+                      "type": "integer"
+                    }
+                  }
+                },
+                "required": [
+                  "context_lengths"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider editor detail. Never includes plaintext credentials.",
+            "headers": {
+              "ETag": {
+                "description": "Current provider editor revision",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "provider": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "builtin": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "builtin_env",
+                            "custom_providers",
+                            "providers"
+                          ]
+                        },
+                        "source_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "api_mode": {
+                          "type": "string",
+                          "enum": [
+                            "chat_completions",
+                            "codex_responses",
+                            "anthropic_messages",
+                            "bedrock_converse",
+                            "codex_app_server"
+                          ]
+                        },
+                        "preferred_model": {
+                          "type": "string"
+                        },
+                        "credential_configured": {
+                          "type": "boolean",
+                          "description": "Whether a credential is configured. The secret itself is never returned."
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "editable_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "context_lengths": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "discover_models": {
+                          "type": "boolean"
+                        },
+                        "rate_limit_delay": {
+                          "type": "number"
+                        },
+                        "request_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "stale_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "extra_body": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "connection_test_supported": {
+                          "type": "boolean"
+                        },
+                        "connection_test_reason": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "editable",
+                        "editable_fields",
+                        "credential_configured",
+                        "revision"
+                      ]
+                    },
+                    "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "provider"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Provider is not editable"
+          },
+          "412": {
+            "description": "Stale revision conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string",
+                      "example": "REVISION_CONFLICT"
+                    },
+                    "current": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "builtin": {
+                          "type": "boolean"
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "builtin_env",
+                            "custom_providers",
+                            "providers"
+                          ]
+                        },
+                        "source_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "api_mode": {
+                          "type": "string",
+                          "enum": [
+                            "chat_completions",
+                            "codex_responses",
+                            "anthropic_messages",
+                            "bedrock_converse",
+                            "codex_app_server"
+                          ]
+                        },
+                        "preferred_model": {
+                          "type": "string"
+                        },
+                        "credential_configured": {
+                          "type": "boolean",
+                          "description": "Whether a credential is configured. The secret itself is never returned."
+                        },
+                        "editable": {
+                          "type": "boolean"
+                        },
+                        "editable_fields": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "context_lengths": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "discover_models": {
+                          "type": "boolean"
+                        },
+                        "rate_limit_delay": {
+                          "type": "number"
+                        },
+                        "request_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "stale_timeout_seconds": {
+                          "type": "number"
+                        },
+                        "extra_body": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "connection_test_supported": {
+                          "type": "boolean"
+                        },
+                        "connection_test_reason": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "editable",
+                        "editable_fields",
+                        "credential_configured",
+                        "revision"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

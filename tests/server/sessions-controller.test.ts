@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, rm, symlink } from 'fs/promises'
+import { mkdir, mkdtemp, rm, symlink, truncate, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -8,6 +8,7 @@ const getConversationDetailFromDbMock = vi.fn()
 const listConversationSummariesMock = vi.fn()
 const getConversationDetailMock = vi.fn()
 const listSessionSummariesMock = vi.fn()
+const listSessionSummaryGroupsMock = vi.fn()
 const getSessionDetailFromDbMock = vi.fn()
 const getSessionDetailFromDbWithProfileMock = vi.fn()
 const getExactSessionDetailFromDbWithProfileMock = vi.fn()
@@ -26,6 +27,7 @@ const localAddMessagesMock = vi.fn()
 const localUpdateSessionStatsMock = vi.fn()
 const getGroupChatServerMock = vi.fn()
 const getLocalUsageStatsMock = vi.fn()
+const getRecordedUsageSessionIdsMock = vi.fn()
 const getActiveProfileNameMock = vi.fn()
 const loggerWarnMock = vi.fn()
 const getCompressionSnapshotMock = vi.fn()
@@ -64,6 +66,7 @@ vi.mock('../../packages/server/src/services/hermes/hermes-cli', () => ({
 
 vi.mock('../../packages/server/src/db/hermes/sessions-db', () => ({
   listSessionSummaries: listSessionSummariesMock,
+  listSessionSummaryGroups: listSessionSummaryGroupsMock,
   searchSessionSummaries: vi.fn(),
   getSessionDetailFromDb: getSessionDetailFromDbMock,
   getSessionDetailFromDbWithProfile: getSessionDetailFromDbWithProfileMock,
@@ -94,6 +97,7 @@ vi.mock('../../packages/server/src/db/hermes/usage-store', () => ({
   getUsage: vi.fn(),
   getUsageBatch: vi.fn(),
   getLocalUsageStats: getLocalUsageStatsMock,
+  getRecordedUsageSessionIds: getRecordedUsageSessionIdsMock,
 }))
 
 vi.mock('../../packages/server/src/routes/hermes/group-chat', () => ({
@@ -151,6 +155,7 @@ describe('session conversations controller', () => {
     listConversationSummariesMock.mockReset()
     getConversationDetailMock.mockReset()
     listSessionSummariesMock.mockReset()
+    listSessionSummaryGroupsMock.mockReset()
     getSessionDetailFromDbMock.mockReset()
     getSessionDetailFromDbWithProfileMock.mockReset()
     getExactSessionDetailFromDbWithProfileMock.mockReset()
@@ -170,6 +175,21 @@ describe('session conversations controller', () => {
     getGroupChatServerMock.mockReset()
     getGroupChatServerMock.mockReturnValue(null)
     getLocalUsageStatsMock.mockReset()
+    getLocalUsageStatsMock.mockReturnValue({
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+      sessions: 0,
+      by_model: [],
+      by_agent: [],
+      by_day: [],
+      cost: 0,
+      total_api_calls: 0,
+    })
+    getRecordedUsageSessionIdsMock.mockReset()
+    getRecordedUsageSessionIdsMock.mockReturnValue([])
     getActiveProfileNameMock.mockReset()
     getActiveProfileNameMock.mockReturnValue('default')
     loggerWarnMock.mockReset()
@@ -215,6 +235,111 @@ describe('session conversations controller', () => {
     expect(localListSessionsMock).toHaveBeenCalledWith(undefined, undefined, 5)
     expect(listConversationSummariesMock).not.toHaveBeenCalled()
     expect(ctx.body.sessions[0]).toMatchObject({ id: 'local-conversation', source: 'cli', title: 'Local' })
+  })
+
+  it('serves bounded workspace preview bytes and blocks traversal, escaped links, and unauthorized profiles', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'hermes-workspace-preview-'))
+    const outside = await mkdtemp(join(tmpdir(), 'hermes-workspace-preview-outside-'))
+    const hermesArtifactWorkspace = '/tmp/hermes-test/research/workspace'
+    try {
+      const pdfBytes = Buffer.from('%PDF-1.7\npreview')
+      await writeFile(join(workspace, 'report.pdf'), pdfBytes)
+      await writeFile(join(outside, 'secret.pdf'), Buffer.from('%PDF secret'))
+      await symlink(join(outside, 'secret.pdf'), join(workspace, 'escaped.pdf'))
+      await writeFile(join(workspace, 'large.pdf'), Buffer.alloc(0))
+      await truncate(join(workspace, 'large.pdf'), 50 * 1024 * 1024 + 1)
+      await mkdir(hermesArtifactWorkspace, { recursive: true })
+      const artifactPath = join(hermesArtifactWorkspace, 'generated.py')
+      await writeFile(artifactPath, 'print("generated")\n')
+      getSessionMock.mockReturnValue({
+        id: 'session-preview',
+        workspace,
+        profile: 'research',
+      })
+
+      const headers: Record<string, string> = {}
+      const successCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: 'report.pdf' },
+        state: { user: { id: 1, role: 'super_admin' } },
+        set: (name: string, value: string) => { headers[name] = value },
+        body: null,
+      }
+      const mod = await import('../../packages/server/src/controllers/hermes/sessions')
+      await mod.readWorkspaceFileContent(successCtx)
+
+      expect(successCtx.body).toEqual(pdfBytes)
+      expect(headers).toMatchObject({
+        'Content-Type': 'application/pdf',
+        'Content-Length': String(pdfBytes.length),
+        'Cache-Control': 'no-store, max-age=0',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      expect(headers['Content-Disposition']).toContain('inline;')
+
+      const artifactHeaders: Record<string, string> = {}
+      const artifactCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: artifactPath, text: '1' },
+        state: { user: { id: 1, role: 'super_admin' } },
+        set: (name: string, value: string) => { artifactHeaders[name] = value },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(artifactCtx)
+      expect(artifactCtx.body.toString('utf8')).toBe('print("generated")\n')
+      expect(artifactHeaders['Content-Type']).toBe('text/plain; charset=utf-8')
+
+      const absoluteOutsideCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: join(outside, 'secret.pdf') },
+        state: { user: { id: 1, role: 'super_admin' } },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(absoluteOutsideCtx)
+      expect(absoluteOutsideCtx).toMatchObject({ status: 400, body: { code: 'invalid_path' } })
+
+      const traversalCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: '../secret.pdf' },
+        state: { user: { id: 1, role: 'super_admin' } },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(traversalCtx)
+      expect(traversalCtx).toMatchObject({ status: 400, body: { code: 'invalid_path' } })
+
+      const escapedCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: 'escaped.pdf' },
+        state: { user: { id: 1, role: 'super_admin' } },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(escapedCtx)
+      expect(escapedCtx).toMatchObject({ status: 400, body: { code: 'invalid_path' } })
+
+      const oversizedCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: 'large.pdf' },
+        state: { user: { id: 1, role: 'super_admin' } },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(oversizedCtx)
+      expect(oversizedCtx).toMatchObject({ status: 413, body: { code: 'file_too_large' } })
+
+      listUserProfilesMock.mockReturnValue([{ profile_name: 'travel' }])
+      const forbiddenCtx: any = {
+        params: { id: 'session-preview' },
+        query: { path: 'report.pdf' },
+        state: { user: { id: 2, role: 'admin' } },
+        body: null,
+      }
+      await mod.readWorkspaceFileContent(forbiddenCtx)
+      expect(forbiddenCtx.status).toBe(403)
+      expect(forbiddenCtx.body.error).toContain('research')
+    } finally {
+      await rm(workspace, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+      await rm(hermesArtifactWorkspace, { recursive: true, force: true })
+    }
   })
 
   it('lists Windows drive roots for the workspace folder picker', async () => {
@@ -270,7 +395,7 @@ describe('session conversations controller', () => {
     }
   })
 
-  it('lists Windows junction-like workspace folders even when their target realpath leaves WORKSPACE_BASE', async () => {
+  it('blocks Windows junction-like workspace folders that escape WORKSPACE_BASE', async () => {
     const originalPlatform = process.platform
     const originalWorkspaceBase = process.env.WORKSPACE_BASE
     const workspaceBase = await mkdtemp(join(tmpdir(), 'hermes-workspace-win-picker-'))
@@ -291,7 +416,7 @@ describe('session conversations controller', () => {
       await mod.listWorkspaceFolders(rootCtx)
 
       expect(rootCtx.status).toBeUndefined()
-      expect(rootCtx.body.folders).toContainEqual({
+      expect(rootCtx.body.folders).not.toContainEqual({
         name: 'DrivesD',
         path: 'DrivesD',
         fullPath: outsideLink,
@@ -300,10 +425,8 @@ describe('session conversations controller', () => {
       const nestedCtx: any = { query: { path: 'DrivesD' }, body: null }
       await mod.listWorkspaceFolders(nestedCtx)
 
-      expect(nestedCtx.status).toBeUndefined()
-      expect(nestedCtx.body.folders).toEqual([
-        { name: 'project', path: 'DrivesD/project', fullPath: join(outsideLink, 'project') },
-      ])
+      expect(nestedCtx.status).toBe(403)
+      expect(nestedCtx.body).toEqual({ error: 'Access denied' })
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform })
       if (originalWorkspaceBase === undefined) delete process.env.WORKSPACE_BASE
@@ -824,6 +947,88 @@ describe('session conversations controller', () => {
     ])
   })
 
+  it('returns the first page of every Hermes history source group', async () => {
+    localListSessionsMock.mockReturnValue([])
+    listSessionSummaryGroupsMock.mockResolvedValue({
+      groups: [
+        {
+          source: 'cli',
+          sessions: [
+            { id: 'cli-1', source: 'cli', started_at: 3, last_active: 3 },
+            { id: 'cli-2', source: 'cli', started_at: 2, last_active: 2 },
+          ],
+          total: 3,
+          hasMore: true,
+        },
+        {
+          source: 'weixin',
+          sessions: [{ id: 'wx-1', source: 'weixin', started_at: 1, last_active: 1 }],
+          total: 1,
+          hasMore: false,
+        },
+        {
+          source: 'api_server',
+          sessions: [{ id: 'api-1', source: 'api_server', started_at: 4, last_active: 4 }],
+          total: 1,
+          hasMore: false,
+        },
+      ],
+      included: [{ id: 'cli-pinned', source: 'cli', started_at: 1, last_active: 1 }],
+    })
+
+    const mod = await import('../../packages/server/src/controllers/hermes/sessions')
+    const ctx: any = {
+      query: { profile: 'travel', limit: '2', include: ['cli-pinned'] },
+      state: {},
+      body: null,
+    }
+
+    await mod.listHermesSessionGroups(ctx)
+
+    expect(listSessionSummaryGroupsMock).toHaveBeenCalledWith(2, 'travel', ['cli-pinned'])
+    expect(ctx.body).toEqual({
+      groups: [
+        expect.objectContaining({ source: 'cli', hasMore: true, sessions: [expect.objectContaining({ id: 'cli-1' }), expect.objectContaining({ id: 'cli-2' })] }),
+        expect.objectContaining({ source: 'weixin', hasMore: false, sessions: [expect.objectContaining({ id: 'wx-1' })] }),
+        expect.objectContaining({ source: 'api_server', hasMore: false, sessions: [expect.objectContaining({ id: 'api-1' })] }),
+      ],
+      included: [expect.objectContaining({ id: 'cli-pinned', profile: 'travel' })],
+    })
+  })
+
+  it('paginates one Hermes history source without mixing other local sources', async () => {
+    localListSessionsMock.mockReturnValue([
+      { id: 'cli-local', source: 'cli', started_at: 4, last_active: 4 },
+    ])
+    listSessionSummariesMock.mockResolvedValue([
+      { id: 'cli-1', source: 'cli', started_at: 5, last_active: 5 },
+      { id: 'cli-2', source: 'cli', started_at: 3, last_active: 3 },
+      { id: 'cli-3', source: 'cli', started_at: 2, last_active: 2 },
+      { id: 'cli-4', source: 'cli', started_at: 1, last_active: 1 },
+    ])
+
+    const mod = await import('../../packages/server/src/controllers/hermes/sessions')
+    const ctx: any = {
+      query: { profile: 'travel', source: 'cli', offset: '1', limit: '2' },
+      state: {},
+      body: null,
+    }
+
+    await mod.listHermesSessions(ctx)
+
+    expect(localListSessionsMock).toHaveBeenCalledWith('travel', 'cli', 4)
+    expect(listSessionSummariesMock).toHaveBeenCalledWith('cli', 4, 'travel')
+    expect(ctx.body).toMatchObject({
+      sessions: [
+        expect.objectContaining({ id: 'cli-local' }),
+        expect.objectContaining({ id: 'cli-2' }),
+      ],
+      hasMore: true,
+      offset: 1,
+      limit: 2,
+    })
+  })
+
   it('keeps archived coding-agent sessions visible in Hermes history', async () => {
     localListSessionsMock.mockReturnValue([{
       id: 'codex-archived',
@@ -1109,7 +1314,7 @@ describe('session conversations controller', () => {
     })
   })
 
-  it('does not return api_server sessions from the Hermes history detail endpoint', async () => {
+  it('returns api_server sessions from the local store in Hermes history', async () => {
     localGetSessionDetailMock.mockReturnValue({
       id: 'api-1',
       source: 'api_server',
@@ -1124,12 +1329,17 @@ describe('session conversations controller', () => {
     await mod.getHermesSession(ctx)
 
     expect(localGetSessionDetailMock).toHaveBeenCalledWith('api-1')
-    expect(getSessionDetailFromDbMock).toHaveBeenCalledWith('api-1')
-    expect(ctx.status).toBe(404)
-    expect(ctx.body).toEqual({ error: 'Session not found' })
+    expect(getSessionDetailFromDbMock).not.toHaveBeenCalled()
+    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(ctx.body.session).toMatchObject({
+      id: 'api-1',
+      source: 'api_server',
+      title: 'API Server',
+      messages: [{ content: 'local api' }],
+    })
   })
 
-  it('returns native state.db usage analytics for the requested period', async () => {
+  it('merges local usage with only state.db sessions missing from the local ledger', async () => {
     const today = new Date().toISOString().slice(0, 10)
     getLocalUsageStatsMock.mockReturnValue({
       input_tokens: 10,
@@ -1141,10 +1351,16 @@ describe('session conversations controller', () => {
       by_model: [
         { model: 'local-model', input_tokens: 10, output_tokens: 5, cache_read_tokens: 2, cache_write_tokens: 1, reasoning_tokens: 3, sessions: 1 },
       ],
+      by_agent: [
+        { agent: 'codex', input_tokens: 10, output_tokens: 5, cache_read_tokens: 2, cache_write_tokens: 1, reasoning_tokens: 3, sessions: 1 },
+      ],
       by_day: [
         { date: today, input_tokens: 10, output_tokens: 5, cache_read_tokens: 2, cache_write_tokens: 1, sessions: 1, errors: 0, cost: 0 },
       ],
+      cost: 0,
+      total_api_calls: 2,
     })
+    getRecordedUsageSessionIdsMock.mockReturnValue(['local-session'])
     getUsageStatsFromDbMock.mockResolvedValue({
       input_tokens: 20,
       output_tokens: 10,
@@ -1157,6 +1373,9 @@ describe('session conversations controller', () => {
       by_model: [
         { model: 'hermes-model', input_tokens: 20, output_tokens: 10, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 6, sessions: 2 },
       ],
+      by_agent: [
+        { agent: 'hermes', input_tokens: 20, output_tokens: 10, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 6, sessions: 2 },
+      ],
       by_day: [
         { date: today, input_tokens: 20, output_tokens: 10, cache_read_tokens: 4, cache_write_tokens: 2, sessions: 2, errors: 0, cost: 0.02 },
       ],
@@ -1166,28 +1385,34 @@ describe('session conversations controller', () => {
     const ctx: any = { query: { days: '2' }, body: null }
     await mod.usageStats(ctx)
 
-    expect(getLocalUsageStatsMock).not.toHaveBeenCalled()
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2)
+    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('default', 2)
+    expect(getRecordedUsageSessionIdsMock).toHaveBeenCalledWith('default')
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'default', ['local-session'])
     expect(ctx.body).toMatchObject({
-      total_input_tokens: 20,
-      total_output_tokens: 10,
-      total_cache_read_tokens: 4,
-      total_cache_write_tokens: 2,
-      total_reasoning_tokens: 6,
-      total_sessions: 2,
+      total_input_tokens: 30,
+      total_output_tokens: 15,
+      total_cache_read_tokens: 6,
+      total_cache_write_tokens: 3,
+      total_reasoning_tokens: 9,
+      total_sessions: 3,
       total_cost: 0.02,
-      total_api_calls: 7,
+      total_api_calls: 9,
       period_days: 2,
     })
     expect(ctx.body.model_usage).toEqual([
       { model: 'hermes-model', input_tokens: 20, output_tokens: 10, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 6, sessions: 2 },
+      { model: 'local-model', input_tokens: 10, output_tokens: 5, cache_read_tokens: 2, cache_write_tokens: 1, reasoning_tokens: 3, sessions: 1 },
+    ])
+    expect(ctx.body.agent_usage).toEqual([
+      { agent: 'hermes', input_tokens: 20, output_tokens: 10, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 6, sessions: 2 },
+      { agent: 'codex', input_tokens: 10, output_tokens: 5, cache_read_tokens: 2, cache_write_tokens: 1, reasoning_tokens: 3, sessions: 1 },
     ])
     expect(ctx.body.daily_usage.find((row: any) => row.date === today)).toMatchObject({
-      input_tokens: 20,
-      output_tokens: 10,
-      cache_read_tokens: 4,
-      cache_write_tokens: 2,
-      sessions: 2,
+      input_tokens: 30,
+      output_tokens: 15,
+      cache_read_tokens: 6,
+      cache_write_tokens: 3,
+      sessions: 3,
       cost: 0.02,
     })
   })
@@ -1212,7 +1437,9 @@ describe('session conversations controller', () => {
     const ctx: any = { query: { days: '2' }, state: { profile: { name: 'research' } }, body: null }
     await mod.usageStats(ctx)
 
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'research')
+    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('research', 2)
+    expect(getRecordedUsageSessionIdsMock).toHaveBeenCalledWith('research')
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'research', [])
     expect(ctx.body).toMatchObject({
       total_input_tokens: 12,
       total_output_tokens: 6,
@@ -1237,6 +1464,8 @@ describe('session conversations controller', () => {
         { model: '', input_tokens: 3, output_tokens: 1, cache_read_tokens: 2, cache_write_tokens: 0, reasoning_tokens: 0, sessions: 1 },
       ],
       by_day: [],
+      cost: 0,
+      total_api_calls: 1,
     })
     getUsageStatsFromDbMock.mockResolvedValue({
       input_tokens: 2,
@@ -1258,7 +1487,7 @@ describe('session conversations controller', () => {
     await mod.usageStats(ctx)
 
     expect(ctx.body.model_usage).toEqual([
-      { model: ' ', input_tokens: 2, output_tokens: 1, cache_read_tokens: 1, cache_write_tokens: 1, reasoning_tokens: 0, sessions: 1 },
+      { model: '', input_tokens: 5, output_tokens: 2, cache_read_tokens: 3, cache_write_tokens: 1, reasoning_tokens: 0, sessions: 2 },
     ])
   })
 
@@ -1317,7 +1546,7 @@ describe('session conversations controller', () => {
     expect(ctx.body).toEqual({ ok: true })
   })
 
-  it('stores a coding agent session model without stopping the runner or notifying the Hermes bridge', async () => {
+  it('stores a coding agent session model and API mode without stopping the runner or notifying the Hermes bridge', async () => {
     bridgeGetRuntimeStateMock.mockReturnValue({ ready: true, running: true, endpoint: 'ipc:///tmp/hermes-agent-bridge.sock' })
     getSessionMock.mockReturnValue({
       id: 'codex-session',
@@ -1326,6 +1555,7 @@ describe('session conversations controller', () => {
       agent: 'codex',
       model: 'old-model',
       provider: 'openrouter',
+      api_mode: 'codex_responses',
       agent_native_session_id: 'old-native-thread',
       workspace: '/tmp/original-workspace',
     })
@@ -1333,7 +1563,7 @@ describe('session conversations controller', () => {
     const mod = await import('../../packages/server/src/controllers/hermes/sessions')
     const ctx: any = {
       params: { id: 'codex-session' },
-      request: { body: { model: 'gpt-5.5', provider: 'openai-codex' } },
+      request: { body: { model: 'gpt-5.5', provider: 'openai-codex', apiMode: 'chat_completions' } },
       body: null,
     }
     await mod.setModel(ctx)
@@ -1341,6 +1571,7 @@ describe('session conversations controller', () => {
     expect(localUpdateSessionMock).toHaveBeenCalledWith('codex-session', {
       model: 'gpt-5.5',
       provider: 'openai-codex',
+      api_mode: 'chat_completions',
       agent_native_session_id: '',
     })
     expect(codingAgentRunManagerMock.stop).not.toHaveBeenCalled()

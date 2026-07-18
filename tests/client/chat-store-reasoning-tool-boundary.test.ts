@@ -25,6 +25,7 @@ vi.mock('@/api/hermes/chat', () => ({
   onPeerUserMessage: vi.fn(() => vi.fn()),
   onSessionCommand: vi.fn(() => vi.fn()),
   onSessionTitleUpdated: vi.fn(() => vi.fn()),
+  onSessionWorkspaceUpdated: vi.fn(() => vi.fn()),
 }))
 
 vi.mock('@/api/client', () => ({
@@ -36,6 +37,8 @@ vi.mock('@/api/hermes/sessions', () => ({
   deleteSession: sessionsApi.deleteSession,
   fetchSessionMessagesPage: sessionsApi.fetchSessionMessagesPage,
   fetchSessions: sessionsApi.fetchSessions,
+  fetchWorkspaceRunChangesForSession: vi.fn(async () => []),
+  fetchWorkspaceRunChangeFile: vi.fn(async () => null),
   setSessionModel: sessionsApi.setSessionModel,
 }))
 
@@ -543,6 +546,62 @@ describe('chat store reasoning/tool boundaries', () => {
     expect(session.model).toBe('deepseek-v4-pro')
     expect(session.baseUrl).toBeUndefined()
     expect(session.apiKey).toBeUndefined()
+    expect(session.apiMode).toBe('chat_completions')
+  })
+
+  it('keeps a local-only session workspace when switching models before the first message', async () => {
+    const store = useChatStore()
+    const session = makeSession()
+    session.isLocalOnly = true
+    session.workspace = 'D:\\projects\\hermes'
+    session.provider = 'deepseek'
+    session.model = 'deepseek-chat'
+    store.sessions = [session]
+    store.activeSessionId = 'session-1'
+    store.activeSession = session
+
+    const ok = await store.switchSessionModel('deepseek-reasoner', 'deepseek', 'session-1')
+
+    expect(ok).toBe(true)
+    expect(sessionsApi.setSessionModel).not.toHaveBeenCalled()
+    expect(session.model).toBe('deepseek-reasoner')
+    expect(session.provider).toBe('deepseek')
+    expect(session.workspace).toBe('D:\\projects\\hermes')
+    expect(session.isLocalOnly).toBe(true)
+
+    await store.sendMessage('inspect this workspace')
+
+    expect(chatApi.startRunViaSocket.mock.calls[0][0]).toEqual(expect.objectContaining({
+      session_id: 'session-1',
+      model: 'deepseek-reasoner',
+      provider: 'deepseek',
+      workspace: 'D:\\projects\\hermes',
+    }))
+  })
+
+  it('preserves a scoped coding-agent API mode when reselecting the same provider', async () => {
+    const store = useChatStore()
+    const session = makeSession()
+    session.source = 'coding_agent'
+    session.agent = 'codex'
+    session.codingAgentId = 'codex'
+    session.codingAgentMode = 'scoped'
+    session.provider = 'fun-codex'
+    session.model = 'gpt-5.4'
+    session.apiMode = 'chat_completions'
+    store.sessions = [session]
+    store.activeSessionId = 'session-1'
+    store.activeSession = session
+
+    const ok = await store.switchSessionModel('gpt-5.5', 'fun-codex', 'session-1')
+
+    expect(ok).toBe(true)
+    expect(sessionsApi.setSessionModel).toHaveBeenCalledWith(
+      'session-1',
+      'gpt-5.5',
+      'fun-codex',
+      'chat_completions',
+    )
     expect(session.apiMode).toBe('chat_completions')
   })
 

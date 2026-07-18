@@ -6,6 +6,7 @@ type TranslationKey =
   | 'tray.show'
   | 'tray.hide'
   | 'tray.checkForUpdates'
+  | 'tray.resetLogin'
   | 'tray.openAtLogin'
   | 'tray.quit'
   | 'update.upToDateTitle'
@@ -15,6 +16,7 @@ type TranslationKey =
   | 'update.currentVersion'
   | 'update.availableTitle'
   | 'update.availableMessage'
+  | 'update.availableDetail'
   | 'update.downloading'
   | 'update.readyTitle'
   | 'update.readyMessage'
@@ -43,6 +45,15 @@ type TranslationKey =
   | 'runtime.extracting'
   | 'runtime.ready'
   | 'common.ok'
+  | 'common.cancel'
+  | 'loginReset.confirmTitle'
+  | 'loginReset.confirmMessage'
+  | 'loginReset.confirmDetail'
+  | 'loginReset.resetting'
+  | 'loginReset.successTitle'
+  | 'loginReset.successMessage'
+  | 'loginReset.failedTitle'
+  | 'loginReset.failedMessage'
 
 const supportedLocales: DesktopLocale[] = ['en', 'zh', 'zh-TW', 'ja', 'ko', 'fr', 'es', 'de', 'pt']
 
@@ -51,6 +62,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'tray.show': 'Show Hermes Studio',
     'tray.hide': 'Hide Hermes Studio',
     'tray.checkForUpdates': 'Check for Updates',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'Open at Login',
     'tray.quit': 'Quit Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -60,6 +72,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': 'Current version: {version}',
     'update.availableTitle': 'Update available',
     'update.availableMessage': 'Hermes Studio {version} is available.',
+    'update.availableDetail': 'Choose whether to download this update.',
     'update.downloading': 'The update is downloading in the background.',
     'update.readyTitle': 'Update ready',
     'update.readyMessage': 'Hermes Studio {version} is ready to install.',
@@ -88,11 +101,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Extracting Hermes runtime...',
     'runtime.ready': 'Hermes runtime ready.',
     'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   zh: {
     'tray.show': '显示 Hermes Studio',
     'tray.hide': '隐藏 Hermes Studio',
     'tray.checkForUpdates': '检查更新',
+    'tray.resetLogin': '重置登录',
     'tray.openAtLogin': '开机启动',
     'tray.quit': '退出 Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -102,6 +125,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': '当前版本：{version}',
     'update.availableTitle': '发现新版本',
     'update.availableMessage': 'Hermes Studio {version} 可用。',
+    'update.availableDetail': '请选择是否下载此更新。',
     'update.downloading': '更新正在后台下载。',
     'update.readyTitle': '更新已就绪',
     'update.readyMessage': 'Hermes Studio {version} 已准备好安装。',
@@ -130,11 +154,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': '正在解压 Hermes 运行时...',
     'runtime.ready': 'Hermes 运行时已就绪。',
     'common.ok': '确定',
+    'common.cancel': '取消',
+    'loginReset.confirmTitle': '重置登录',
+    'loginReset.confirmMessage': '确认将登录重置为 admin / 123456？',
+    'loginReset.confirmDetail': 'Hermes Studio 会重启本地 Web UI 服务、清除登录失败锁，然后回到登录页。',
+    'loginReset.resetting': '正在重置登录...',
+    'loginReset.successTitle': '登录已重置',
+    'loginReset.successMessage': '登录已重置为 {username} / {password}。',
+    'loginReset.failedTitle': '重置登录失败',
+    'loginReset.failedMessage': '无法重置桌面端登录。',
   },
   'zh-TW': {
     'tray.show': '顯示 Hermes Studio',
     'tray.hide': '隱藏 Hermes Studio',
     'tray.checkForUpdates': '檢查更新',
+    'tray.resetLogin': '重置登入',
     'tray.openAtLogin': '開機啟動',
     'tray.quit': '結束 Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -144,6 +178,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': '目前版本：{version}',
     'update.availableTitle': '發現新版本',
     'update.availableMessage': 'Hermes Studio {version} 可用。',
+    'update.availableDetail': '請選擇是否下載此更新。',
     'update.downloading': '更新正在背景下載。',
     'update.readyTitle': '更新已就緒',
     'update.readyMessage': 'Hermes Studio {version} 已準備好安裝。',
@@ -172,11 +207,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': '正在解壓 Hermes 運行時...',
     'runtime.ready': 'Hermes 運行時已就緒。',
     'common.ok': '確定',
+    'common.cancel': '取消',
+    'loginReset.confirmTitle': '重置登入',
+    'loginReset.confirmMessage': '確認將登入重置為 admin / 123456？',
+    'loginReset.confirmDetail': 'Hermes Studio 會重新啟動本地 Web UI 服務、清除登入失敗鎖，然後回到登入頁。',
+    'loginReset.resetting': '正在重置登入...',
+    'loginReset.successTitle': '登入已重置',
+    'loginReset.successMessage': '登入已重置為 {username} / {password}。',
+    'loginReset.failedTitle': '重置登入失敗',
+    'loginReset.failedMessage': '無法重置桌面端登入。',
   },
   ja: {
     'tray.show': 'Hermes Studio を表示',
     'tray.hide': 'Hermes Studio を隠す',
     'tray.checkForUpdates': 'アップデートを確認',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'ログイン時に開く',
     'tray.quit': 'Hermes Studio を終了',
     'update.upToDateTitle': 'Hermes Studio',
@@ -186,6 +231,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': '現在のバージョン: {version}',
     'update.availableTitle': 'アップデートがあります',
     'update.availableMessage': 'Hermes Studio {version} が利用できます。',
+    'update.availableDetail': 'このアップデートをダウンロードするか選択してください。',
     'update.downloading': 'アップデートをバックグラウンドでダウンロードしています。',
     'update.readyTitle': 'アップデートの準備ができました',
     'update.readyMessage': 'Hermes Studio {version} をインストールできます。',
@@ -214,11 +260,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Hermes ランタイムを展開しています...',
     'runtime.ready': 'Hermes ランタイムの準備ができました。',
     'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   ko: {
     'tray.show': 'Hermes Studio 표시',
     'tray.hide': 'Hermes Studio 숨기기',
     'tray.checkForUpdates': '업데이트 확인',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': '로그인 시 열기',
     'tray.quit': 'Hermes Studio 종료',
     'update.upToDateTitle': 'Hermes Studio',
@@ -228,6 +284,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': '현재 버전: {version}',
     'update.availableTitle': '업데이트 사용 가능',
     'update.availableMessage': 'Hermes Studio {version}을 사용할 수 있습니다.',
+    'update.availableDetail': '이 업데이트를 다운로드할지 선택하세요.',
     'update.downloading': '업데이트를 백그라운드에서 다운로드하고 있습니다.',
     'update.readyTitle': '업데이트 준비 완료',
     'update.readyMessage': 'Hermes Studio {version}을 설치할 준비가 되었습니다.',
@@ -256,11 +313,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Hermes 런타임을 압축 해제하는 중...',
     'runtime.ready': 'Hermes 런타임이 준비되었습니다.',
     'common.ok': '확인',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   fr: {
     'tray.show': 'Afficher Hermes Studio',
     'tray.hide': 'Masquer Hermes Studio',
     'tray.checkForUpdates': 'Rechercher les mises a jour',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'Ouvrir a la connexion',
     'tray.quit': 'Quitter Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -270,6 +337,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': 'Version actuelle : {version}',
     'update.availableTitle': 'Mise a jour disponible',
     'update.availableMessage': 'Hermes Studio {version} est disponible.',
+    'update.availableDetail': 'Choisissez si vous souhaitez telecharger cette mise a jour.',
     'update.downloading': 'La mise a jour se telecharge en arriere-plan.',
     'update.readyTitle': 'Mise a jour prete',
     'update.readyMessage': 'Hermes Studio {version} est pret a etre installe.',
@@ -298,11 +366,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Extraction du runtime Hermes...',
     'runtime.ready': 'Runtime Hermes pret.',
     'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   es: {
     'tray.show': 'Mostrar Hermes Studio',
     'tray.hide': 'Ocultar Hermes Studio',
     'tray.checkForUpdates': 'Buscar actualizaciones',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'Abrir al iniciar sesion',
     'tray.quit': 'Salir de Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -312,6 +390,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': 'Version actual: {version}',
     'update.availableTitle': 'Actualizacion disponible',
     'update.availableMessage': 'Hermes Studio {version} esta disponible.',
+    'update.availableDetail': 'Elige si deseas descargar esta actualizacion.',
     'update.downloading': 'La actualizacion se esta descargando en segundo plano.',
     'update.readyTitle': 'Actualizacion lista',
     'update.readyMessage': 'Hermes Studio {version} esta listo para instalarse.',
@@ -340,11 +419,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Extrayendo runtime de Hermes...',
     'runtime.ready': 'Runtime de Hermes listo.',
     'common.ok': 'Aceptar',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   de: {
     'tray.show': 'Hermes Studio anzeigen',
     'tray.hide': 'Hermes Studio ausblenden',
     'tray.checkForUpdates': 'Nach Updates suchen',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'Beim Anmelden offnen',
     'tray.quit': 'Hermes Studio beenden',
     'update.upToDateTitle': 'Hermes Studio',
@@ -354,6 +443,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': 'Aktuelle Version: {version}',
     'update.availableTitle': 'Update verfugbar',
     'update.availableMessage': 'Hermes Studio {version} ist verfugbar.',
+    'update.availableDetail': 'Wahlen Sie, ob Sie dieses Update herunterladen mochten.',
     'update.downloading': 'Das Update wird im Hintergrund heruntergeladen.',
     'update.readyTitle': 'Update bereit',
     'update.readyMessage': 'Hermes Studio {version} ist zur Installation bereit.',
@@ -382,11 +472,21 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Hermes Runtime wird entpackt...',
     'runtime.ready': 'Hermes Runtime ist bereit.',
     'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   pt: {
     'tray.show': 'Mostrar Hermes Studio',
     'tray.hide': 'Ocultar Hermes Studio',
     'tray.checkForUpdates': 'Verificar atualizacoes',
+    'tray.resetLogin': 'Reset Login',
     'tray.openAtLogin': 'Abrir ao iniciar sessao',
     'tray.quit': 'Sair do Hermes Studio',
     'update.upToDateTitle': 'Hermes Studio',
@@ -396,6 +496,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'update.currentVersion': 'Versao atual: {version}',
     'update.availableTitle': 'Atualizacao disponivel',
     'update.availableMessage': 'Hermes Studio {version} esta disponivel.',
+    'update.availableDetail': 'Escolha se deseja baixar esta atualizacao.',
     'update.downloading': 'A atualizacao esta sendo baixada em segundo plano.',
     'update.readyTitle': 'Atualizacao pronta',
     'update.readyMessage': 'Hermes Studio {version} esta pronto para instalar.',
@@ -424,6 +525,15 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'runtime.extracting': 'Extraindo runtime Hermes...',
     'runtime.ready': 'Runtime Hermes pronto.',
     'common.ok': 'OK',
+    'common.cancel': 'Cancel',
+    'loginReset.confirmTitle': 'Reset login',
+    'loginReset.confirmMessage': 'Reset the login to admin / 123456?',
+    'loginReset.confirmDetail': 'Hermes Studio will restart its local Web UI service, clear login locks, and return to the login page.',
+    'loginReset.resetting': 'Resetting login...',
+    'loginReset.successTitle': 'Login reset',
+    'loginReset.successMessage': 'Login has been reset to {username} / {password}.',
+    'loginReset.failedTitle': 'Login reset failed',
+    'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
 }
 
